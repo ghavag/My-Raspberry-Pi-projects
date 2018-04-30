@@ -13,7 +13,10 @@
 // Header-Dateien für I²C/TWI-spezifische Sachen.
 #include <util/twi.h>
 
-int data[2];
+uint16_t result;
+
+#define DATA_ARRAY_LENGTH 5
+uint16_t data[DATA_ARRAY_LENGTH];
 
 /*
  * Interrupt-Routine, welche die Nachrichten
@@ -35,7 +38,9 @@ ISR(TWI_vect) {
 
 		case TW_ST_SLA_ACK: // own SLA+R received, acknoledge sent
 		case TW_ST_DATA_ACK:
-			TWDR = data[data_index]; // Sende festen Test-Wert.
+			if (data_index == 0) TWDR = result & 0xFF;
+			else TWDR = (result >> 8) & 0xFF;
+			//TWDR = data[data_index];
 			data_index = (data_index + 1) % 2;
 			TWCR &= ~((1<<TWSTO) | (1<<TWEA));
 
@@ -71,12 +76,30 @@ void main(void) {
 
 	data[0]=0;
 	data[1]=0;
+	int i, j;
+	uint16_t tmp;
 
 	while (1) {
-		ADCSRA |= (1<<ADSC); // Beginnen der Messung.
-		while(ADCSRA & (1<<ADSC)); // Warten bis Messung erfolgt ist.
+		// Messungen durchführen.
+		for (i = 0; i < DATA_ARRAY_LENGTH; i++) {
+			ADCSRA |= (1<<ADSC); // Beginnen der Messung.
+			while(ADCSRA & (1<<ADSC)); // Warten bis Messung erfolgt ist.
+			data[i] = ADCL;
+			data[i] += (ADCH << 8);
+		}
 
-		data[0] = ADCL;
-		data[1] = ADCH;
+		// Messwerte nach Größe sortieren.
+		for (i = 0; i < (DATA_ARRAY_LENGTH - 1); i++) {
+			for (j = (i+1); j < DATA_ARRAY_LENGTH; j++) {
+				if (data[i] > data[j]) {
+					tmp = data[i];
+					data[i] = data[j];
+					data[j] = tmp;
+				}
+			}
+		}
+
+		// Median als Ergebnis wählen.
+		result = data[DATA_ARRAY_LENGTH / 2];
 	}
 }
